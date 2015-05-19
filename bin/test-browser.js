@@ -1,15 +1,19 @@
 #!/usr/bin/env node
 'use strict';
 
+var path = require('path');
+var spawn = require('child_process').spawn;
+
 var wd = require('wd');
 wd.configureHttp({timeout: 180000}); // 3 minutes
-
 var sauceConnectLauncher = require('sauce-connect-launcher');
-var selenium = require('selenium-standalone');
 var querystring = require("querystring");
 var request = require('request').defaults({json: true});
 
 var devserver = require('./dev-server.js');
+
+var SELENIUM_PATH = '../vendor/selenium-server-standalone-2.38.0.jar';
+var SELENIUM_HUB = 'http://localhost:4444/wd/hub/status';
 
 var testTimeout = 30 * 60 * 1000;
 
@@ -116,11 +120,31 @@ function testComplete(result) {
 }
 
 function startSelenium(callback) {
+
   // Start selenium
-  selenium({}, {}, function() {
-    sauceClient = wd.promiseChainRemote();
-    callback();
-  });
+  spawn('java', ['-jar', path.resolve(__dirname, SELENIUM_PATH)], {});
+
+  var retries = 0;
+  var started = function () {
+
+    if (++retries > 60) {
+      console.error('Unable to connect to selenium');
+      process.exit(1);
+      return;
+    }
+
+    request(SELENIUM_HUB, function (err, resp) {
+      if (resp && resp.statusCode === 200) {
+        sauceClient = wd.promiseChainRemote();
+        callback();
+      } else {
+        setTimeout(started, 1000);
+      }
+    });
+  };
+
+  started();
+
 }
 
 function startSauceConnect(callback) {
